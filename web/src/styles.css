@@ -47,6 +47,7 @@ ol {
   list-style: none;
 }
 button,
+input,
 select,
 textarea {
   font: inherit;

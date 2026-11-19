@@ -69,7 +69,8 @@ export default function Console() {
 
         {offline && (
           <p className="banner" role="alert">
-            The platform is not answering on /api. Start it with <code>uvicorn sentineldesk.api:app</code>.
+            The platform is not answering. If it is hosted on a free plan it may be waking up: wait a
+            minute and this page will reconnect. Locally, start it with <code>uvicorn sentineldesk.api:app</code>.
           </p>
         )}
         {error && <p className="banner" role="alert">{error}</p>}

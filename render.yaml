@@ -1,0 +1,30 @@
+# Render blueprint for the two Python services. The dashboard is deployed separately (Vercel).
+# After the first deploy, set the three URLs marked "set in the dashboard".
+services:
+  - type: web
+    name: sentinel-desk-platform
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python -m scripts.fetch_data && python -m scripts.train
+    startCommand: uvicorn sentineldesk.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: BANK_URL
+        sync: false  # set in the dashboard: the bank service's URL
+      - key: CORS_ORIGINS
+        sync: false  # set in the dashboard: the dashboard's URL on Vercel
+
+  - type: web
+    name: sentinel-desk-bank
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn bank.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /admin/state
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: PLATFORM_URL
+        sync: false  # set in the dashboard: the platform service's URL

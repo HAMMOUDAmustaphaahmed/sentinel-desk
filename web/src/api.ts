@@ -84,8 +84,12 @@ export interface DemoState {
   services: Service[]
 }
 
+// Empty when the platform is served from the same origin (development proxy, Docker).
+// Set VITE_API_URL at build time when it lives elsewhere, e.g. https://my-platform.example.com
+const BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
+
 async function request<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${BASE}/api${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -158,7 +162,7 @@ export class FieldError extends Error {
 export const configApi = {
   get: () => request<Config>('/config'),
   save: async (changes: Record<string, string | number>): Promise<Config> => {
-    const response = await fetch('/api/config', {
+    const response = await fetch(`${BASE}/api/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(changes),
