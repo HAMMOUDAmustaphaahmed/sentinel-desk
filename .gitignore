@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+*.sqlite3
+
+# Downloaded dataset and trained model: rebuilt with scripts/fetch_data.py and scripts/train.py
+data/
+models/
+
+# Secrets
+.env
+
+# Dashboard
+web/node_modules/
+web/dist/

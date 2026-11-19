@@ -1,0 +1,43 @@
+{
+  "triage": {
+    "test_tickets": 3080,
+    "intents": 77,
+    "intent_accuracy": 0.9159,
+    "intent_macro_f1": 0.9161,
+    "feature_accuracy": 0.9662,
+    "failure_flag_accuracy": 0.9721,
+    "below_confidence_threshold": {
+      "share": 0.0468,
+      "accuracy": 0.4722
+    },
+    "above_confidence_threshold": {
+      "accuracy": 0.9377
+    }
+  },
+  "incidents": {
+    "scenarios": 300,
+    "linking": {
+      "tickets_caused_by_the_incident": 2976,
+      "linked_correctly": 2597,
+      "linked_wrongly": 29,
+      "precision": 0.989,
+      "recall": 0.8726
+    },
+    "false_incidents_per_scenario": 0.053,
+    "outage": {
+      "scenarios": 227,
+      "detected": 1.0,
+      "seconds_to_detect_median": 7.0,
+      "seconds_to_detect_p90": 14.4
+    },
+    "silent": {
+      "scenarios": 73,
+      "detected": 0.9726,
+      "seconds_to_detect_median": 204.5,
+      "seconds_to_detect_p90": 340.8,
+      "tickets_needed_median": 4
+    }
+  },
+  "seed": 7,
+  "language_model": null
+}

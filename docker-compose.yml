@@ -1,0 +1,29 @@
+# docker compose up --build   ->   http://localhost:8080
+services:
+  platform:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BANK_URL: http://bank:8100
+    volumes:
+      - platform-data:/data
+
+  bank:
+    build: .
+    command: ["uvicorn", "bank.app:app", "--host", "0.0.0.0", "--port", "8100"]
+    environment:
+      PLATFORM_URL: http://platform:8000
+    depends_on:
+      - platform
+
+  web:
+    build: ./web
+    ports:
+      - "8080:80"
+    depends_on:
+      - platform
+
+volumes:
+  platform-data:
