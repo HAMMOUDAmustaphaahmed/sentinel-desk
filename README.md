@@ -76,7 +76,7 @@ The last two rows are why low-confidence tickets are never handled automatically
 
 ### What these numbers do not cover
 
-- **No language model was involved.** They measure the deterministic path every ticket takes first. The two agents are tested with a scripted model (27 tests), not evaluated against a real one, because no API key was available when this was built.
+- **No language model was involved.** They measure the deterministic path every ticket takes first. The two agents are tested with a scripted model (34 tests in total), not evaluated against a real one, because no API key was available when this was built.
 - **"Which tickets belong to the incident" is defined by this project's own intent-to-feature mapping.** A ticket counts as related when its true Banking77 label maps to the broken feature and reports a failure.
 - **The scenarios are simulated.** Real traffic has seasonality and correlated failures across services, which the simulation does not.
 
@@ -114,9 +114,21 @@ docker compose up --build         # http://localhost:8080
 3. Click **Approve and run** on the proposed action. The demo bank is repaired and the incident moves to "Fix applied, watching".
 4. Pick `topup`, click **Break it silently**, then **5 customers complain**. No exception is logged, and an incident still opens, from the tickets.
 
+## The three pages
+
+| Page | What it is |
+|---|---|
+| `/` | Overview. A Three.js scene follows the scroll: scattered tickets and exceptions travel to the incident they belong to. |
+| `/console` | The working screen: incidents, tickets, approvals, and the demo controls. |
+| `/settings` | Configuration: the model behind the agents and every threshold the pipeline uses. |
+
 ## Turn the agents on
 
-Without a model the platform still works: replies are drafted from the knowledge base and actions come from the runbooks. To use the two agents, set a model. Copy `.env.example`, or export:
+Without a model the platform still works: replies are drafted from the knowledge base and actions come from the runbooks. To use the two agents, set a model on the **Configuration** page: pick a provider shortcut, enter the model name and the key, save, then **Test the connection**. The change applies at once, with no restart.
+
+The key is stored in the platform's database and is never sent back to the browser. The page has no sign-in, like the rest of this demo.
+
+The same settings can be given as environment variables, which act as the defaults. Copy `.env.example`, or export:
 
 ```bash
 # Any OpenAI-compatible provider: OpenAI, Groq, Mistral, Gemini, OpenRouter, DeepSeek, a local server
@@ -138,7 +150,7 @@ With a hosted model, ticket text leaves your network. For data that cannot, poin
 ## Tests
 
 ```bash
-python -m pytest -q               # 27 tests, about 2 s, no network, no dataset
+python -m pytest -q               # 34 tests, about 2 s, no network, no dataset
 cd web && npm run build           # type-checks and builds the dashboard
 ```
 
@@ -155,12 +167,13 @@ sentineldesk/
   actions.py       the action allowlist and approval
   supervisor.py    routing, the two agents' tools and prompts
   knowledge.py     runbook and FAQ search
+  runtime_config.py  settings editable while running, and their validation
   api.py           HTTP API
 bank/app.py        the demo bank, with fault injection
 runbooks/  faq/    the knowledge base, as Markdown
 scripts/           fetch_data, train, evaluate
 tests/
-web/               React + TypeScript dashboard
+web/               React + TypeScript: overview, console, configuration
 ```
 
 ## Limits
@@ -168,7 +181,7 @@ web/               React + TypeScript dashboard
 - **No authentication.** This is a demo. Put it behind your own before exposing it.
 - **One open incident per service.** Two unrelated failures on the same service are treated as one.
 - **Tickets are English only**, like the dataset.
-- **Detection thresholds are fixed** in [`sentineldesk/config.py`](sentineldesk/config.py), not learned per service.
+- **Detection thresholds are set by hand** on the Configuration page, the same for every service. They are not learned.
 - **Knowledge-base search is lexical.** It is enough for 23 short documents; a larger base would need embeddings.
 
 ## Data and licence

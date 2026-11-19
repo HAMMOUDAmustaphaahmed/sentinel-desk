@@ -114,3 +114,61 @@ export const api = {
     request('/demo/tickets', { service, kind, count }),
   reset: () => request('/demo/reset', {}),
 }
+
+// ------------------------------------------------------------------ configuration
+
+export interface ConfigField {
+  key: string
+  group: string
+  label: string
+  help: string
+  kind: 'int' | 'float' | 'text' | 'url' | 'select' | 'secret'
+  min: number | null
+  max: number | null
+  step: number | null
+  unit: string
+  options: string[]
+  changed: boolean
+  value?: string | number
+  default?: string | number
+  is_set?: boolean
+}
+
+export interface Config {
+  groups: { key: string; title: string; description: string }[]
+  fields: ConfigField[]
+  presets: { name: string; llm_provider: string; llm_base_url: string }[]
+  model_active: string | null
+  model_problem: string
+}
+
+export interface ModelTest {
+  ok: boolean
+  message: string
+  reply?: string
+}
+
+// A rejected setting names the field it concerns.
+export class FieldError extends Error {
+  constructor(public field: string, message: string) {
+    super(message)
+  }
+}
+
+export const configApi = {
+  get: () => request<Config>('/config'),
+  save: async (changes: Record<string, string | number>): Promise<Config> => {
+    const response = await fetch('/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes),
+    })
+    const data = await response.json().catch(() => null)
+    if (response.ok) return data as Config
+    const detail = data?.detail
+    if (detail && typeof detail === 'object' && 'field' in detail) throw new FieldError(detail.field, detail.message)
+    throw new Error(`Saving failed (${response.status}).`)
+  },
+  reset: () => request<Config>('/config/reset', {}),
+  testModel: () => request<ModelTest>('/config/test-model', {}),
+}

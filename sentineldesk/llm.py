@@ -72,15 +72,13 @@ class OpenAICompatible:
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
     def complete(self, conversation: list[dict[str, Any]], tools: list[ToolSpec]) -> Turn:
-        payload = {
-            "model": self._model,
-            "messages": conversation,
-            "tools": [
+        payload: dict[str, Any] = {"model": self._model, "messages": conversation}
+        if tools:  # some providers reject an empty tool list
+            payload["tools"] = [
                 {"type": "function",
                  "function": {"name": t.name, "description": t.description, "parameters": t.parameters}}
                 for t in tools
-            ],
-        }
+            ]
         try:
             response = self._client.post("/chat/completions", json=payload)
             response.raise_for_status()
@@ -128,15 +126,15 @@ class Anthropic:
 
     def complete(self, conversation: dict[str, Any], tools: list[ToolSpec]) -> Turn:
         sdk = self._sdk
+        request: dict[str, Any] = {
+            "model": self._model, "max_tokens": self._max_tokens,
+            "system": conversation["system"], "messages": conversation["messages"],
+        }
+        if tools:
+            request["tools"] = [{"name": t.name, "description": t.description, "input_schema": t.parameters}
+                                for t in tools]
         try:
-            response = self._client.messages.create(
-                model=self._model,
-                max_tokens=self._max_tokens,
-                system=conversation["system"],
-                tools=[{"name": t.name, "description": t.description, "input_schema": t.parameters}
-                       for t in tools],
-                messages=conversation["messages"],
-            )
+            response = self._client.messages.create(**request)
         except sdk.RateLimitError as error:
             raise LLMError(f"Rate limited: {error}") from error
         except sdk.APIStatusError as error:

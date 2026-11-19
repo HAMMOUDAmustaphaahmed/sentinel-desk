@@ -80,7 +80,14 @@ class Platform:
         self.knowledge = knowledge
         self.cfg = cfg
         self.model = model
+        self._custom_executor = executor
         self.executor = executor or actions.http_executor(cfg.bank_url)
+
+    def reconfigure(self, cfg: Settings, model: Optional[ChatModel]) -> None:
+        """Apply new settings without restarting. Requests already running finish on the old ones."""
+        self.cfg = cfg
+        self.model = model
+        self.executor = self._custom_executor or actions.http_executor(cfg.bank_url)
 
     # ------------------------------------------------------------------ exceptions
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
@@ -16,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 
-from . import llm
+from . import llm, runtime_config
 from .actions import ALLOWED_ACTIONS
 from .config import Settings, settings
 from .db import Action, Audit, ExceptionEvent, Incident, Ticket, make_session_factory, utcnow
@@ -97,9 +98,21 @@ def create_app(platform: Optional[Platform] = None, cfg: Settings = settings) ->
                     f"No triage model at {cfg.model_path}. Run: python -m scripts.fetch_data && python -m scripts.train")
             state["platform"] = Platform(
                 make_session_factory(cfg.database_url), TriageModel.load(cfg.model_path),
-                KnowledgeBase.from_dirs(cfg.runbook_dir, cfg.faq_dir), cfg, model=llm.from_settings(cfg),
+                KnowledgeBase.from_dirs(cfg.runbook_dir, cfg.faq_dir), cfg,
             )
+            apply_saved_config(state["platform"])
         return state["platform"]
+
+    def apply_saved_config(p: Platform) -> str:
+        """Load saved settings into the running platform. Returns a problem with the model, if any."""
+        with p.sessions() as session:
+            current = runtime_config.effective(cfg, runtime_config.load_overrides(session))
+        try:
+            model, problem = llm.from_settings(current), ""
+        except llm.LLMError as error:
+            model, problem = None, str(error)
+        p.reconfigure(current, model)
+        return problem
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -118,7 +131,7 @@ def create_app(platform: Optional[Platform] = None, cfg: Settings = settings) ->
                   docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.add_middleware(
         CORSMiddleware, allow_origins=[o.strip() for o in cfg.cors_origins.split(",") if o.strip()],
-        allow_methods=["GET", "POST"], allow_headers=["Content-Type"],
+        allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"],
     )
 
     # ------------------------------------------------------------------ ingestion
@@ -224,6 +237,54 @@ def create_app(platform: Optional[Platform] = None, cfg: Settings = settings) ->
         with p.sessions() as session:
             return action_out(session.get(Action, action_id))
 
+    # -------------------------------------------------------------- configuration
+
+    def config_out(p: Platform, problem: str = "") -> dict[str, Any]:
+        with p.sessions() as session:
+            overrides = runtime_config.load_overrides(session)
+        return {**runtime_config.describe(cfg, p.cfg, overrides),
+                "model_active": p.model.name if p.model else None, "model_problem": problem}
+
+    @app.get("/api/config")
+    def get_config() -> dict[str, Any]:
+        return config_out(get_platform())
+
+    @app.put("/api/config")
+    def put_config(changes: dict[str, Any]) -> dict[str, Any]:
+        p = get_platform()
+        with p.sessions() as session:
+            try:
+                runtime_config.save_overrides(session, changes)
+            except runtime_config.ConfigError as error:
+                raise HTTPException(422, {"field": error.key, "message": str(error)}) from error
+            session.commit()
+        return config_out(p, apply_saved_config(p))
+
+    @app.post("/api/config/reset")
+    def reset_config() -> dict[str, Any]:
+        p = get_platform()
+        with p.sessions() as session:
+            runtime_config.clear_overrides(session)
+            session.commit()
+        return config_out(p, apply_saved_config(p))
+
+    @app.post("/api/config/test-model")
+    def test_model() -> dict[str, Any]:
+        """One short request to the configured model, to check the address, the name and the key."""
+        p = get_platform()
+        if p.model is None:
+            return {"ok": False, "message": "No model is configured. Set a model name and save first."}
+        started = time.perf_counter()
+        try:
+            turn = p.model.complete(p.model.start("Reply with the single word: ready", "Are you there?"), [])
+        except llm.LLMError as error:
+            return {"ok": False, "message": str(error)}
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+        if turn.refused:
+            return {"ok": False, "message": "The model declined the test request."}
+        return {"ok": True, "message": f"{p.model.name} answered in {elapsed_ms} ms.",
+                "reply": turn.text.strip()[:120]}
+
     # ----------------------------------------------------------------------- demo
     # Controls for the demonstration: break the fake bank, send sample tickets, start over.
 
@@ -241,7 +302,7 @@ def create_app(platform: Optional[Platform] = None, cfg: Settings = settings) ->
     @app.get("/api/demo/state")
     def demo_state() -> dict[str, Any]:
         try:
-            faults = httpx.get(f"{cfg.bank_url}/admin/state", timeout=3).json()["faults"]
+            faults = httpx.get(f"{get_platform().cfg.bank_url}/admin/state", timeout=3).json()["faults"]
             return {"bank_reachable": True, "faults": faults, "services": list(SERVICES)}
         except (httpx.HTTPError, KeyError, ValueError):
             return {"bank_reachable": False, "faults": {}, "services": list(SERVICES)}
@@ -249,11 +310,11 @@ def create_app(platform: Optional[Platform] = None, cfg: Settings = settings) ->
     @app.post("/api/demo/fault")
     def demo_fault(body: FaultIn) -> dict[str, Any]:
         try:
-            response = httpx.post(f"{cfg.bank_url}/admin/faults", json=body.model_dump(), timeout=5)
+            response = httpx.post(f"{get_platform().cfg.bank_url}/admin/faults", json=body.model_dump(), timeout=5)
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as error:
-            raise HTTPException(502, f"The demo bank is not reachable at {cfg.bank_url}.") from error
+            raise HTTPException(502, f"The demo bank is not reachable at {get_platform().cfg.bank_url}.") from error
 
     @app.post("/api/demo/tickets")
     def demo_tickets(body: DemoTickets) -> dict[str, Any]:
@@ -267,12 +328,13 @@ def create_app(platform: Optional[Platform] = None, cfg: Settings = settings) ->
 
     @app.post("/api/demo/reset")
     def demo_reset() -> dict[str, str]:
+        """Clear tickets, incidents and logs. Saved settings are kept."""
         with get_platform().sessions() as session:
             for model in (Action, Ticket, Incident, ExceptionEvent, Audit):
                 session.execute(delete(model))
             session.commit()
         try:
-            httpx.post(f"{cfg.bank_url}/admin/reset", timeout=3)
+            httpx.post(f"{get_platform().cfg.bank_url}/admin/reset", timeout=3)
         except httpx.HTTPError:
             pass  # the bank being down does not prevent clearing the platform
         return {"status": "reset"}
